@@ -24,14 +24,18 @@ Graded by ``warg run utils grade-tests``: pass on the real code, 90% branch
 coverage, and fail on every broken copy in ``grader/mutants/``.
 """
 
+import dataclasses
+import math
+
 import pytest
 
+from src.constants import EARTH_RADIUS_M
+from src.types import Coordinate
 from src.waypoint_utils import (
     east_north_coordinate_offset_m,
     parse_waypoints_file,
     sort_clockwise_sweep,
 )
-from src.types import Coordinate
 
 # The helper and the test below are given to you.
 
@@ -88,9 +92,151 @@ def test_parse_waypoints_file_success(tmp_path, text, expected):
     assert parse_waypoints_file(path) == expected
 
 
-def test_placeholder():
-    # TODO(bootcamper): delete this and write real tests. It's only here so
-    # linter doesn't complain about unused imports before you start.
+def test_east_north_coordinate_offset_m():
+    east, north = east_north_coordinate_offset_m(from_lat = 5, from_lon = 5, to_lat = 5, to_lon = 5)
+    assert east == 0
+    assert north == 0  
+
+    east, north = east_north_coordinate_offset_m(from_lat = 5, from_lon = 0, to_lat = 10, to_lon = 0)
+    assert east == pytest.approx(0, abs=1e-6)
+    assert north == pytest.approx((math.radians(5) * EARTH_RADIUS_M), abs = 1.0)
+
+    east, north = east_north_coordinate_offset_m(from_lat = 0, from_lon = 5, to_lat = 0, to_lon = 10)
+    assert east == pytest.approx((math.radians(5) * EARTH_RADIUS_M), abs = 1.0)
+    assert north == pytest.approx(0, abs=1e-6) 
+
+    east, north = east_north_coordinate_offset_m(from_lat = 45, from_lon = 0, to_lat = 45, to_lon = 5)
+    assert north == pytest.approx(0, abs=1e-6)
+    assert east == pytest.approx(math.radians(5) * math.cos(math.radians(45)) * EARTH_RADIUS_M, abs=1.0)
+
     assert callable(east_north_coordinate_offset_m)
     assert callable(parse_waypoints_file)
     assert callable(sort_clockwise_sweep)
+
+def test_pwf_rejects_non_mapping_entry(tmp_path):   
+  path = write_to_tmp_waypoints_file(tmp_path, text= """
+  waypoints:
+    - "amongus"
+  """,
+    )
+  with pytest.raises(ValueError):
+    parse_waypoints_file(path)
+def test_pfw_rejects_non_numeric_value(tmp_path):
+  path = write_to_tmp_waypoints_file(tmp_path, text = """
+  waypoints:
+    - lat: "amongus"
+      lon: 10
+      alt: 4
+  """
+  )
+  with pytest.raises(ValueError):
+    parse_waypoints_file(path)
+def test_pfw_rejects_out_of_range_lat(tmp_path):
+  path = write_to_tmp_waypoints_file(tmp_path, text = """
+  waypoints:
+    - lat: 91
+      lon: 60
+      alt: 20
+  """
+  )
+  with pytest.raises(ValueError):
+    parse_waypoints_file(path)
+def test_pfw_rejects_out_of_range_lon(tmp_path):
+  path = write_to_tmp_waypoints_file(tmp_path, text = """
+  waypoints:
+    - lat: 60
+      lon: 181
+      alt: 4
+  """
+  )
+  with pytest.raises(ValueError):
+    parse_waypoints_file(path)
+def test_pfw_rejects_bad_YAML(tmp_path):
+  path = write_to_tmp_waypoints_file(tmp_path, text = """
+  waypoints:
+  - lat: 'among
+  """
+  )
+  with pytest.raises(ValueError):
+    parse_waypoints_file(path)
+def test_pfw_rejects_non_mapping_top_level(tmp_path):
+  path = write_to_tmp_waypoints_file(tmp_path, text = """
+  100
+  """
+  )
+  with pytest.raises(ValueError):
+    parse_waypoints_file(path)
+def test_pfw_rejetcs_empty_file(tmp_path):
+  path = write_to_tmp_waypoints_file(tmp_path, text = """
+  """
+  )
+  assert parse_waypoints_file(path) == (None, [])
+def test_pfw_rejects_missing_file(tmp_path):
+  path = tmp_path / "waypoints.yaml"
+  with pytest.raises(OSError):
+    parse_waypoints_file(path)
+
+def test_pfw_rejects_missing_alt(tmp_path):
+  path = write_to_tmp_waypoints_file(tmp_path, text="""
+  waypoints:
+    - lat: 10
+      lon: 10
+      """
+                                     )
+  with pytest.raises(ValueError):
+    parse_waypoints_file(path)
+
+def test_coordinate_is_frozen():
+    coordinate = Coordinate(lat=43.47, lon=-80.54, alt=15)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        coordinate.lat = 10
+
+def test_scw_single_waypoint():
+  coordinate = Coordinate(lat=43.47, lon=-80.54, alt=15)
+  output = sort_clockwise_sweep([coordinate], None)
+  assert output == [coordinate]
+
+def test_scw_reject_empty_list():
+  assert sort_clockwise_sweep([]) == []
+
+def test_scw_coordinate_output_sort():
+  assert sort_clockwise_sweep([Coordinate(lat=-10, lon=0, alt=10),
+                              Coordinate(lat=0, lon=-10, alt=10),
+                              Coordinate(lat=10, lon=0, alt=10), 
+                              Coordinate(lat=0, lon=10, alt=10)]) == ([Coordinate(lat=10, lon=0,alt=10),
+                                                                       Coordinate(lat=0, lon=10,alt=10),
+                                                                       Coordinate(lat=-10, lon=0, alt=10),
+                                                                       Coordinate(lat=0, lon=-10, alt=10)])
+
+def test_scw_home_sweep_inthatdirection():
+  assert sort_clockwise_sweep([Coordinate(lat=-10, lon=0, alt=10),
+                              Coordinate(lat=0, lon=-10, alt=10),
+                              Coordinate(lat=10, lon=0, alt=10), 
+                              Coordinate(lat=0, lon=10, alt=10)],
+                              home= Coordinate(lat=0, lon=10, alt=10)) == ([Coordinate(lat=0, lon=10,alt=10),
+                                                                       Coordinate(lat=-10, lon=0, alt=10),
+                                                                       Coordinate(lat=0, lon=-10, alt=10),
+                                                                       Coordinate(lat=10, lon=0,alt=10)])
+
+def test_scw_home_centroid():
+  assert sort_clockwise_sweep([Coordinate(lat=-10, lon=0, alt=10),
+                              Coordinate(lat=0, lon=-10, alt=10),
+                              Coordinate(lat=10, lon=0, alt=10), 
+                              Coordinate(lat=0, lon=10, alt=10)],
+                              home= Coordinate(lat=0, lon=0, alt=10)) == ([Coordinate(lat=10, lon=0,alt=10),
+                                                                       Coordinate(lat=0, lon=10,alt=10),
+                                                                       Coordinate(lat=-10, lon=0, alt=10),
+                                                                       Coordinate(lat=0, lon=-10, alt=10)])
+
+def test_scw_tiebreak():
+  assert sort_clockwise_sweep([Coordinate(lat=-10, lon=0, alt=10),
+                                Coordinate(lat=0, lon=-10, alt=10),
+                                Coordinate(lat=10, lon=0, alt=10), 
+                                Coordinate(lat=0, lon=10, alt=10),
+                                Coordinate(lat=100, lon=0, alt=10),
+                                Coordinate(lat=-100, lon=0, alt=10)]) == ([Coordinate(lat=10, lon=0,alt=10),
+                                                                       Coordinate(lat=100, lon=0, alt=10),
+                                                                       Coordinate(lat=0, lon=10,alt=10),
+                                                                       Coordinate(lat=-10, lon=0, alt=10),
+                                                                       Coordinate(lat=-100, lon=0, alt=10),
+                                                                       Coordinate(lat=0, lon=-10, alt=10)])

@@ -1,4 +1,4 @@
-# Part 3: Test Waypoint Utilities
+ # Part 3: Test Waypoint Utilities
 
 In Part 2 you wrote code to pass tests we gave you. This part is the other way around: the code is already written and **you write the tests**.
 
